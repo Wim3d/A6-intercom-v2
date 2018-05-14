@@ -38,6 +38,7 @@ void setup()
   delay(500);
   pinMode(BLUELEDPIN, OUTPUT);
   pinMode(GREENLEDPIN, OUTPUT);
+  pinMode(interruptPin, INPUT_PULLUP);
   // Open Serial communications
   if (SERIALDEBUG)
   {
