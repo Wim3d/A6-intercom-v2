@@ -39,50 +39,57 @@ void setup()
   pinMode(BLUELEDPIN, OUTPUT);
   pinMode(GREENLEDPIN, OUTPUT);
   // Open Serial communications
-  if (SERIALDEBUG)          // if serialdebug is 0, no debug serial is started
+  if (SERIALDEBUG)
   {
     DebugSerial.begin(57600);
   }
-  A6Serial.begin(115200);   // serial connection tot A6 module
-  // blink green led at startup
+  A6Serial.begin(115200);
   digitalWrite(GREENLEDPIN, HIGH);
   delay(500);
   digitalWrite(GREENLEDPIN, LOW);
-
-  // print debug info on the debug serial if connected
   DebugSerial.println("");
   DebugSerial.println("start setup");
-  smartDelay(17000);      // wait for the A6 module to start up and connect to the network. In smartDelay the serial output is printed to the debug serial
-  A6start();              // initialize the module
+  smartDelay(17000);
+  A6start();
   DebugSerial.println("end of setup");
-  attachInterrupt(digitalPinToInterrupt(interruptPin), count, LOW); //attach interrupt. pin is pulled up in normal state
-  digitalWrite(GREENLEDPIN, HIGH);  // if setup and initializing of A6 module has succeeded, green led light up
+  attachInterrupt(digitalPinToInterrupt(interruptPin), IS_routine, LOW); //pin is pulled up in normal state
+  state = LOW;
+  digitalWrite(GREENLEDPIN, HIGH);
 }
 
 void loop()
 {
   DebugSerial.println("loop");
   //  first handle the interrupt request
-  if (state == HIGH)  // button was pressed during last loop
+  if (state == HIGH)
   {
     digitalWrite(BLUELEDPIN, HIGH);
     digitalWrite(GREENLEDPIN, LOW);
     A6Serial.print("ATD");
     A6Serial.println(phone_no); // call number
+    smartDelay(2000);
+    state = LOW;
+    DebugSerial.print("value of state before while loop: ");
+    DebugSerial.println(state);
     starttime = millis();
-    int8_t answer2 = sendATcommand("", "ERROR", 1000);    //checks whether the caller hang up (gives an "ERROR" message in the output of the A6 module)
-    while (answer2 == 0 && calltime < maxoutgoing)        // loop for the call, ended by timer or a hang up
+    int8_t answer2 = sendATcommand("", "ERROR", 1000);    //checks whether the caller hang up
+    while (answer2 == 0 && calltime < maxoutgoing && state == LOW)        // loop for the call, ended by timer or a hang up from both sides
     {
+      DebugSerial.print("value of state in while loop: ");
+      DebugSerial.println(state);
       answer2 = sendATcommand("", "ERROR", 1000);
       calltime = millis() - starttime;
     }
+    DebugSerial.print("value of state after while loop: ");
+    DebugSerial.println(state);
     sendATcommand("ATH", "OK", 1000);                     // hang up the A6 module
+    smartDelay(1000);
     state = LOW;
     digitalWrite(BLUELEDPIN, LOW);
     digitalWrite(GREENLEDPIN, HIGH);
   }
 
-  while (answer = sendATcommand("", "+CLIP", 1000))     // if the module is called, "+CLIP" is in the serial communication
+  while (answer = sendATcommand("", "+CLIP", 1000))
   {
     //answer is 1 if sendATcommand detects +CLIP
     if (answer == 1)
@@ -91,7 +98,7 @@ void loop()
       DebugSerial.print("Received data: ");
 
       for (int i = 0; i < 15; i++) {
-        //read the incoming byte of the phone number:
+        //read the incoming byte:
         while (A6Serial.available() == 0)
         {
           delay (50);
@@ -108,7 +115,9 @@ void loop()
       while (received[j] != '"') j++;
       j++;
       for (byte i = 0; i < 11; i++) {
+
         phone_number[i] = received[i + j];
+
       }
     }
     DebugSerial.print("Phone number: ");
@@ -118,21 +127,24 @@ void loop()
     }
     DebugSerial.println("");
     switch (compareNumber(phone_number)) {
+
       case 0:
         {
-          DebugSerial.print("Unknown number, do not snswer");
+          DebugSerial.print("Unknown number, do not answer");
+          break;
         }
       case 1:
         {
           DebugSerial.print("known number, answer call");
+          //answercall(60000);
           digitalWrite(BLUELEDPIN, HIGH);
           digitalWrite(GREENLEDPIN, LOW);
           smartDelay(1000);
-          sendATcommand("ATA", "OK", 1000);   // answer phone call
+          sendATcommand("ATA", "OK", 1000);
+          state = LOW;
           starttime = millis();
-          //smartDelay(10000);
-          int8_t answer2 = sendATcommand("", "ERROR", 1000);  //checks whether the caller hang up (gives an "ERROR" message in the output of the A6 module)
-          while (answer2 == 0 && calltime < maxincoming)
+          int8_t answer2 = sendATcommand("", "ERROR", 1000);  //checks whether the caller hang up or the intercom hang up
+          while (answer2 == 0 && calltime < maxincoming && state == LOW)
           {
             answer2 = sendATcommand("", "ERROR", 1000);
             calltime = millis() - starttime;
@@ -141,6 +153,7 @@ void loop()
           smartDelay(1000);
           digitalWrite(BLUELEDPIN, LOW);
           digitalWrite(GREENLEDPIN, HIGH);
+          state = LOW;
           break;
         }
     }
@@ -150,7 +163,10 @@ void loop()
 void A6start()
 {
   DebugSerial.println("A6 begin...");
+  //smartDelay(2000);
+
   answer = 0;
+
   // checks if the module is started
   answer = sendATcommand("AT", "OK", 2000);
   if (answer == 0)
@@ -159,7 +175,7 @@ void A6start()
     while (answer == 0)
     { // send AT every two seconds and wait for the answer
       answer = sendATcommand("AT", "OK", 2000);
-    }
+      }
   }
   int8_t answer1 = 0;
   smartDelay(1000);
@@ -170,7 +186,7 @@ void A6start()
     while (answer1 == 0)
     { // checks whether module is connected to network
       answer1 = sendATcommand("AT+CREG?", "+CREG: 1,1", 2000);
-    }
+      }
   }
   int8_t answer2 = 0;
   smartDelay(1000);
@@ -194,9 +210,9 @@ int8_t sendATcommand(char* ATcommand, char* expected_answer, unsigned int timeou
 
   memset(response, '\0', 100);    // Initialice the string
   delay(100);
-  while (DebugSerial.available() > 0) DebugSerial.read();   // Clean the input buffer
+  while ( DebugSerial.available() > 0) DebugSerial.read();   // Clean the input buffer
   A6Serial.println(ATcommand);    // Send the AT command
-  DebugSerial.println(ATcommand);    // Print the AT command on DebugSerial
+  //Serial.println(ATcommand);    // Print the AT command on DebugSerial
   x = 0;
   previous = millis();
 
@@ -212,7 +228,7 @@ int8_t sendATcommand(char* ATcommand, char* expected_answer, unsigned int timeou
         answer = 1;
       }
     }
-    // Waits for the answer with time out
+    // Waits for the aswser with time out
   } while ((answer == 0) && ((millis() - previous) < timeout));
   DebugSerial.println(response);
   return answer;
@@ -244,13 +260,13 @@ static void smartDelay(unsigned long ms)
   unsigned long start = millis();
   do
   {
-    // print output of A6 module on debug serial
     if ( A6Serial.available())
     {
       DebugSerial.write( A6Serial.read());
     }
   } while (millis() - start < ms);
 }
-void count() {
+
+void IS_routine() {
   state = HIGH;
 }
